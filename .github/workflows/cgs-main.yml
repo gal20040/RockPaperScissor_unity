@@ -35,7 +35,7 @@ on:
       restore_cache_from_R2:
         description: 'Restore cache from R2'
         type: boolean
-        default: true
+        default: false
       custom_build_version:
         description: 'Версия сборки (формат 1.2.3). Оставьте пустым, чтобы взять из buildVersion.txt'
         required: false
