@@ -36,6 +36,10 @@ on:
         description: 'Restore cache from R2'
         type: boolean
         default: false
+      free_disk_space:
+        description: 'Free Disk Space'
+        type: boolean
+        default: true
       custom_build_version:
         description: 'Версия сборки (формат 1.2.3). Оставьте пустым, чтобы взять из buildVersion.txt'
         required: false
@@ -196,7 +200,7 @@ jobs:
       - name: Free Disk Space
         timeout-minutes: 6
         uses: jlumbroso/free-disk-space@v1.3.1
-        if: github.event_name == 'workflow_dispatch' && !inputs.restore_cache_from_R2
+        if: github.event_name == 'workflow_dispatch' && !inputs.restore_cache_from_R2 && inputs.free_disk_space
         with:
           tool-cache: true
 
