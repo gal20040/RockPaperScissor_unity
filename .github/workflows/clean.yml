@@ -1,0 +1,93 @@
+name: Cleanup
+
+permissions:
+  actions: write # To remove artifacts and caches
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # At 02:00 UTC-3 # https://crontab.guru/#0_2_*_*_*
+  workflow_dispatch: # Allows manual launch from the Actions tab
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  cleanup:
+    name: Cleanup old artifacts and caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set thresholds
+        run: |
+          echo "THRESHOLD_2days_LIST=$(date -d '2 days ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+          echo "THRESHOLD_2days_DELETE=$(date -d '2 days ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+          echo "THRESHOLD_3days_LIST=$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+          echo "THRESHOLD_4days_DELETE=$(date -d '4 days ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+
+      - name: Process artifacts
+        run: |
+          # Get a list of artifacts older than 2 days
+          gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq \
+            ".artifacts[] | select(.created_at < \"$THRESHOLD_2days_LIST\") | {
+              branch: .workflow_run.head_branch,
+              created_at: .created_at,
+              expired: .expired,
+              expires_at: .expires_at,
+              id: .id,
+              name: .name,
+              size_kb: (.size_in_bytes / 1024 | floor),
+              workflow_run_id: .workflow_run.id
+            }" > artifacts.json
+
+          if [ -s artifacts.json ]; then
+            echo "##### Artifacts older than 2 days (created before $THRESHOLD_2days_LIST):" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            jq -s '.' artifacts.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            # We delete those that are older than 2 days
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "##### Deleting artifacts older than 2 days (created before $THRESHOLD_2days_DELETE):" >> $GITHUB_STEP_SUMMARY
+            jq -c "select(.created_at < \"$THRESHOLD_2days_DELETE\")" artifacts.json | while read -r item; do
+              id=$(echo "$item" | jq -r '.id')
+              echo "Deleting artifact ID: $id" >> $GITHUB_STEP_SUMMARY
+              gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/$id
+            done
+          else
+            echo "##### No artifacts older than 2 days found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Process caches
+        run: |
+          # Get a list of caches older than 2 days
+          gh api repos/${{ github.repository }}/actions/caches --paginate --jq \
+            ".actions_caches[] | select(.last_accessed_at < \"$THRESHOLD_2days_LIST\") | {
+              id: .id,
+              key: .key,
+              ref: .ref,
+              created_at: .created_at,
+              last_accessed_at: .last_accessed_at,
+              size_kb: (.size_in_bytes / 1024 | floor)
+            }" > caches.json
+
+          if [ -s caches.json ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "##### Caches 'last_accessed_at' older than 2 days ('last_accessed_at' before $THRESHOLD_2days_LIST):" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            jq -s '.' caches.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            # Delete those that are older than 2 days
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "##### Deleting caches 'last_accessed_at' older than 2 days ('last_accessed_at' before $THRESHOLD_2days_DELETE):" >> $GITHUB_STEP_SUMMARY
+            jq -c "select(.last_accessed_at < \"$THRESHOLD_2days_DELETE\")" caches.json | while read -r item; do
+              id=$(echo "$item" | jq -r '.id')
+              echo "Deleting cache ID: $id" >> $GITHUB_STEP_SUMMARY
+              gh api -X DELETE repos/${{ github.repository }}/actions/caches/$id
+            done
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "##### No caches older than 2 days found." >> $GITHUB_STEP_SUMMARY
+          fi

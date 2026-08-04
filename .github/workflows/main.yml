@@ -1,0 +1,800 @@
+name: Unity Actions
+
+permissions:
+  actions: write # To cancel runs (gh run cancel) and delete the cache
+  checks: write
+  contents: read # To read the code
+  pull-requests: read # To check for PR (gh pr list)
+
+env:
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  #pull_request:
+  #  branches:
+  #    - main
+  #  types: [opened, synchronize, reopened, edited]
+  #push:
+  #  branches:
+  #    - main
+  workflow_dispatch:
+    inputs:
+      # Main job
+      run_tests:
+        description: 'Run Tests'
+        type: boolean
+        default: false
+      # build jobs
+      run_build_jobs:
+        description: 'Run Build Jobs'
+        type: boolean
+        default: true
+      run_buildAndroid_job:
+        description: 'Job: Android Build'
+        type: boolean
+        default: true
+      android_export_types:
+        description: 'Android Export Types'
+        type: choice
+        options:
+          - both
+          - apk
+          - aab
+        default: aab
+      run_buildWindows_job:
+        description: 'Job: Windows Build'
+        type: boolean
+        default: false
+
+### Refer to https://game.ci/docs/github/getting-started
+jobs:
+  lint:
+    name: 👀 Lint
+    timeout-minutes: 10
+    if: |
+      !contains(fromJSON('["dependabot", "renovate"]'), github.actor) &&
+      !startsWith(github.event.pull_request.title, 'chore(deps') &&
+      !startsWith(github.event.pull_request.title, 'fix(deps')
+    runs-on: ubuntu-latest
+    # runs-on: self-hosted
+    env:
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+    steps:
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 🧾 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          lfs: true
+
+      #- name: Clean workspace (self-hosted only)
+      #  if: contains(runner.name, 'codespace')
+      #  run: git clean -ffdx
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 👀 Get runner info
+        id: runner_info
+        run: |
+          echo "##### Runner info" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+          echo "- Runner name: \`$RUNNER_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner OS: \`$RUNNER_OS\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner arch: \`$RUNNER_ARCH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner workspace: \`$RUNNER_WORKSPACE\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner temp: \`$RUNNER_TEMP\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner tool cache: \`$RUNNER_TOOL_CACHE\`" >> $GITHUB_STEP_SUMMARY
+          #if [[ "$RUNNER_NAME" == *"codespace"* ]]; then
+          #  echo "- Runner type: \`Github Codespace hosted\`" >> $GITHUB_STEP_SUMMARY
+          #else
+          #  echo "- Runner type: \`Github hosted\`" >> $GITHUB_STEP_SUMMARY
+          #fi
+        continue-on-error: true
+
+      - name: 👀 Check branch info
+        id: branch_info
+        run: |
+          echo "##### Branch info" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`$BRANCH_NAME\`" >> $GITHUB_STEP_SUMMARY
+          #echo "- App Version: \`$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Event: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- github.head_ref (only for PR): \`${{ github.head_ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- github.ref_name: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+
+          PARENT="main"
+          echo "Calculated PARENT: $PARENT"
+          echo "parent_branch_name=$PARENT" >> $GITHUB_OUTPUT
+          echo "- Parent branch name: \`$PARENT\`" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
+      - name: 👀 Show environment info
+        id: env_info
+        run: |
+          echo "##### Android SDK info" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+          echo "- ANDROID_HOME: \`$ANDROID_HOME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ANDROID_SDK_ROOT: \`$ANDROID_SDK_ROOT\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ANDROID_USER_HOME: \`$ANDROID_USER_HOME\`" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
+      - name: 📦 Setup Node.js
+        id: setup_nodejs
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+
+      - name: 📦 Install npm dependencies
+        id: setup_npm
+        run: npm ci
+
+      - name: 👀 Check for new Node.js LTS
+        id: check_node_lts
+        run: |
+          # https://nodejs.org/en/about/previous-releases - v.26 will become active LTS in early Nov'26
+
+          LATEST_LTS=$(curl -sL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.lts != false)][0].version')
+          LATEST_LTS_MAJOR=$(echo $LATEST_LTS | cut -d'.' -f1 | sed 's/v//')
+          INSTALLED_NODE_VERSION=$(node -v)
+          CURRENT_LTS_MAJOR=$(echo $INSTALLED_NODE_VERSION | cut -d'.' -f1 | sed 's/v//')
+
+          if [[ "$LATEST_LTS_MAJOR" == "$CURRENT_LTS_MAJOR" ]]; then
+            echo "##### Node.js LTS check " >> $GITHUB_STEP_SUMMARY
+            echo "- Installed Node.js version: \`$INSTALLED_NODE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Latest LTS version available: \`$LATEST_LTS\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "# ❗❗❗ Node.js LTS check ❗❗❗" >> $GITHUB_STEP_SUMMARY
+            echo "- Installed Node.js version: \`$INSTALLED_NODE_VERSION\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Latest LTS version available**: \`$LATEST_LTS\`" >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+
+      - name: 💬 Run normalize-typography
+        id: nrm_tpgr
+        # Шаг временно отключён - не учитывает .gitignore
+        if: 1 == 0
+        run: npm run nrm-tpgr:check || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 💬 Run Prettier
+        id: prettier_npm
+        run: npm run format:check || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 💬 Prune dependencies (only report)
+        id: prune_deps
+        run: npm prune --dry-run
+        continue-on-error: true
+
+      - name: 💬 Deduplicate dependencies (only report)
+        id: dedupe_deps
+        run: npm dedupe --dry-run
+        continue-on-error: true
+
+      - name: 💬 Run Knip (unused code and deps)
+        id: knip
+        run: npm run knip || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 💬 Run dependency-cruiser
+        id: lint_deps
+        run: npm run lint:deps || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 💬 Check for outdated dependencies
+        id: outdated_deps
+        run: npm outdated
+        continue-on-error: true
+
+      - name: 💬 Security audit
+        id: audit_deps
+        run: npm audit
+        continue-on-error: true
+
+      - name: 👀 Create Workflow Summary
+        id: create_workflow_summary
+        if: always()
+        run: |
+          get_status() {
+            local outcome=$1
+            if [ "$outcome" == "success" ]; then
+              echo "OK"
+            elif [ "$outcome" == "failure" ]; then
+              echo "There are some issues. Check log."
+            elif [ "$outcome" == "skipped" ]; then
+              echo "Skipped"
+            else
+              echo "Unknown ($outcome)"
+            fi
+          }
+
+          echo "##### Info, Prettier, NPM Dependencies" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👀 Get runner info | $(get_status "${{ steps.runner_info.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👀 Check branch info | $(get_status "${{ steps.branch_info.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👀 Show environment info | $(get_status "${{ steps.env_info.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 👀 Check for new Node.js LTS | $(get_status "${{ steps.check_node_lts.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          #echo "| 💬 Normalize typography | $(get_status "${{ steps.nrm_tpgr.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Prettier (npm) | $(get_status "${{ steps.prettier_npm.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Prune dependencies (only report) | $(get_status "${{ steps.prune_deps.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Deduplicate dependencies (only report) | $(get_status "${{ steps.dedupe_deps.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Knip | $(get_status "${{ steps.knip.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Dependency-cruiser | $(get_status "${{ steps.lint_deps.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Check for outdated dependencies | $(get_status "${{ steps.outdated_deps.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 Security audit | $(get_status "${{ steps.audit_deps.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+  check_secrets:
+    name: 🔑🩺 Check GitHub Secrets
+    timeout-minutes: 3
+    if: |
+      !contains(fromJSON('["dependabot", "renovate"]'), github.actor) &&
+      !startsWith(github.event.pull_request.title, 'chore(deps') &&
+      !startsWith(github.event.pull_request.title, 'fix(deps')
+    runs-on: ubuntu-latest
+    # runs-on: self-hosted
+    steps:
+      - name: Get secrets
+        if: always()
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p r2/
+          echo "$ANDROID_KEYSTORE_PASSWORD"          > ./r2/txt1.txt
+          echo "$ANDROID_KEY_PASSWORD"      > ./r2/txt2.txt
+          echo "$ANDROID_KEY_ALIAS"                  > ./r2/txt3.txt
+          echo "$ANDROID_KEYSTORE_BASE64"                > ./r2/txt4.txt
+
+      - name: 📝 Publish build artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: r2files
+          path: r2
+          retention-days: 1
+
+      - name: 🔑 Check Unity license
+        id: checklicense
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.aUNITY_PASSWORD }}
+        run: |
+          missing_secrets=""
+          [ -z "$UNITY_LICENSE" ] && missing_secrets="$missing_secrets UNITY_LICENSE"
+          [ -z "$UNITY_EMAIL" ] && missing_secrets="$missing_secrets UNITY_EMAIL"
+          [ -z "$UNITY_PASSWORD" ] && missing_secrets="$missing_secrets UNITY_PASSWORD"
+          if [ -z "$missing_secrets" ]; then
+            echo "✅ All required 'UNITY_' secrets are present"
+          else
+            echo "❌ Missing 'UNITY_' secrets:$missing_secrets"
+            exit 1
+          fi
+
+      - name: 🩺 Check 'ANDROID_' secrets
+        id: check_android_secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          missing_secrets=""
+          [ -z "$ANDROID_KEYSTORE_BASE64" ] && missing_secrets="$missing_secrets ANDROID_KEYSTORE_BASE64"
+          [ -z "$ANDROID_KEY_PASSWORD" ] && missing_secrets="$missing_secrets ANDROID_KEY_PASSWORD"
+          [ -z "$ANDROID_KEY_ALIAS" ] && missing_secrets="$missing_secrets ANDROID_KEY_ALIAS"
+          if [ -z "$missing_secrets" ]; then
+            echo "✅ All required 'ANDROID_' secrets are present"
+          else
+            echo "❌ Missing 'ANDROID_' secrets:$missing_secrets"
+            exit 1
+          fi
+
+      - name: 🩺 Check 'SENTRY_' secrets
+        id: check_sentry_secrets
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_CLI_OPTIONS: ${{ secrets.SENTRY_CLI_OPTIONS }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          missing_secrets=""
+          [ -z "$SENTRY_AUTH_TOKEN" ] && missing_secrets="$missing_secrets SENTRY_AUTH_TOKEN"
+          [ -z "$SENTRY_CLI_OPTIONS" ] && missing_secrets="$missing_secrets SENTRY_CLI_OPTIONS"
+          [ -z "$SENTRY_ORG" ] && missing_secrets="$missing_secrets SENTRY_ORG"
+          [ -z "$SENTRY_PROJECT" ] && missing_secrets="$missing_secrets SENTRY_PROJECT"
+          if [ -z "$missing_secrets" ]; then
+            echo "✅ All required 'SENTRY_' secrets are present"
+          else
+            echo "❌ Missing 'SENTRY_' secrets:$missing_secrets"
+            exit 1
+          fi
+
+      #- name: 📦 Install bash dependencies (self-hosted only)
+      #  if: contains(runner.name, 'codespace')
+      #  run: |
+      #    if ! which git-lfs >/dev/null 2>&1; then
+      #      echo "'git-lfs' not found. Please install it on the self-hosted runner."
+      #      exit 1
+      #    fi
+      #    echo "" && echo "-------------------"
+      #    echo "##### git-lfs: #####"
+      #    which git-lfs
+      #    git-lfs --version
+
+      #- name: 📦 Ensure Docker installed (self-hosted only)
+      #  if: contains(runner.name, 'codespace')
+      #  run: |
+      #    if ! which docker >/dev/null 2>&1; then
+      #      echo "Docker not found. Please install Docker on the self-hosted runner."
+      #      exit 1
+      #    fi
+      #    echo "" && echo "-------------------"
+      #    echo "##### Docker found: #####"
+      #    which docker
+      #    docker --version
+
+  test:
+    needs: [check_secrets]
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_tests)
+    name: 🧪 Run all tests ✨
+    timeout-minutes: 120
+    runs-on: ubuntu-latest
+    # runs-on: self-hosted
+    steps:
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 🧾 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          lfs: true
+
+      #- name: Clean workspace (self-hosted only)
+      #  if: contains(runner.name, 'codespace')
+      #  run: git clean -ffdx
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 📦 Install bash dependencies
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: 🧾 Cache restore
+        uses: actions/cache@v6.1.0
+        with:
+          path: Library
+          key: Library-test-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset', 'ProjectSettings/ProjectVersion.txt') }}
+          #restore-keys: |
+          #  Library-test-
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 💬 Run Dotnet Format (Lint)
+        id: linter
+        # Шаг временно отключён - не знаю, нужен ли мне этот форматтер - слишком много шума и слишком мало толка
+        if: 1 == 0
+        run: dotnet format 2048.sln --verify-no-changes --verbosity diagnostic || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 💬 Run CSharpier (Prettier for C#)
+        id: csharpier
+        # Шаг временно отключён
+        run: dotnet csharpier check . || echo "CI_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: 🧪 Tests
+        uses: game-ci/unity-test-runner@v4.3.1
+        id: testRunner
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Publish test artifact
+        id: publish_test_artifact
+        if: steps.testRunner.outcome != 'skipped'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Test results (all modes)
+          path: ${{ steps.testRunner.outputs.artifactsPath }}
+          retention-days: 7
+        continue-on-error: true
+
+      - name: 👀 Create Workflow Summary
+        id: create_workflow_summary
+        if: always()
+        run: |
+          get_status() {
+            local outcome=$1
+            if [ "$outcome" == "success" ]; then
+              echo "OK"
+            elif [ "$outcome" == "failure" ]; then
+              echo "There are some issues. Check log."
+            elif [ "$outcome" == "skipped" ]; then
+              echo "Skipped"
+            else
+              echo "Unknown ($outcome)"
+            fi
+          }
+
+          echo "##### CSharpier, Coverage, Stryker" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          #echo "| 💬 Dotnet Format (Lint) | $(get_status "${{ steps.linter.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 💬 CSharpier | $(get_status "${{ steps.csharpier.outcome }}") |" >> $GITHUB_STEP_SUMMARY
+          echo >> $GITHUB_STEP_SUMMARY
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+  buildAndroid:
+    needs: [check_secrets]
+    #needs: [test, check_secrets]
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_buildAndroid_job && inputs.run_build_jobs)
+    name: 🦺 Build for Android (${{ matrix.exportMode }})
+    timeout-minutes: 150
+    runs-on: ubuntu-latest
+    # runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        exportMode: ${{ (github.event_name == 'workflow_dispatch' && inputs.android_export_types == 'apk' && fromJSON('["apk"]')) || (github.event_name == 'workflow_dispatch' && inputs.android_export_types == 'aab' && fromJSON('["aab"]')) || fromJSON('["apk", "aab"]') }}
+    steps:
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 📦 Install zstd
+        run: sudo apt-get update && sudo apt-get install -y zstd
+
+      - name: 🧾 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      #- name: Clean workspace (self-hosted only)
+      #  if: contains(runner.name, 'codespace')
+      #  run: git clean -ffdx
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 💾 Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: 🛠️ Create SentryCliOptions.asset
+        env:
+          SENTRY_CLI_OPTIONS: ${{ secrets.SENTRY_CLI_OPTIONS }}
+        run: |
+          mkdir -p Assets/Plugins/Sentry/
+          echo ""; echo "---"
+          echo "Folder 'Assets/Plugins/Sentry/': $(ls -alF Assets/Plugins/Sentry/)"
+          echo "---"; echo ""
+          echo "$SENTRY_CLI_OPTIONS" > Assets/Plugins/Sentry/SentryCliOptions.asset
+          echo ""; echo "---"
+          echo "Folder 'Assets/Plugins/Sentry/': $(ls -alF Assets/Plugins/Sentry/)"
+          echo "---"; echo ""
+
+      - name: Check Library folder
+        run: |
+          check_folder() {
+            local folder=$1
+            local fail=$2
+            echo ""; echo "---"
+            if [ -d "$folder" ]; then
+              echo "📁 $folder($(readlink -f "$folder")) (Size: $(du -sh "$folder" | cut -f1)):"
+              ls -alF --group-directories-first "$folder"
+            else
+              echo "❌ 📁 No $folder"
+              if [ "$fail" == "true" ]; then
+                exit 1
+              fi
+            fi
+            echo "---"; echo ""
+          }
+          check_folder "./Library/"
+
+      - name: Restore Library cache from R2
+        id: restore_library_cache
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          CACHE_KEY: Library-Android-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset', 'ProjectSettings/ProjectVersion.txt') }}
+        run: |
+          echo "Looking for cache: $CACHE_KEY"
+          if aws s3 cp "s3://$R2_BUCKET/$CACHE_KEY" Library.tar.zst --endpoint-url $R2_ENDPOINT --quiet; then
+            echo "Cache found, extracting..."
+            tar -I zstd -xf Library.tar.zst
+            rm Library.tar.zst
+          else
+            echo "Cache not found. Nothing to download."
+          fi
+
+      - name: Check Library folder
+        run: |
+          check_folder() {
+            local folder=$1
+            local fail=$2
+            echo ""; echo "---"
+            if [ -d "$folder" ]; then
+              echo "📁 $folder($(readlink -f "$folder")) (Size: $(du -sh "$folder" | cut -f1)):"
+              ls -alF --group-directories-first "$folder"
+            else
+              echo "❌ 📁 No $folder"
+              if [ "$fail" == "true" ]; then
+                exit 1
+              fi
+            fi
+            echo "---"; echo ""
+          }
+          check_folder "./Library/"
+
+      - name: Before build timestamp
+        if: ${{ always() }}
+        run: |
+          date -u
+          df -h
+          free -h || true
+
+      - name: 🦺 Build Android ${{ matrix.exportMode }}
+        id: build
+        continue-on-error: true
+        uses: game-ci/unity-builder@v5.0.0
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
+          customParameters: -SENTRY_AUTH_TOKEN ${{ secrets.SENTRY_AUTH_TOKEN }} -SENTRY_ORG ${{ secrets.SENTRY_ORG }} -SENTRY_PROJECT ${{ secrets.SENTRY_PROJECT }}
+          versioning: Semantic
+          # `androidPackage` to build an apk, `androidAppBundle` for an aab
+          androidExportType: ${{ matrix.exportMode == 'apk' && 'androidPackage' || 'androidAppBundle' }}
+          androidKeystoreName: 'my-release-key.jks'
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          androidKeyaliasName: ${{ secrets.ANDROID_KEY_ALIAS }}
+          androidKeyaliasPass: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # must be one of "Unity's AndroidSdkVersions" (https://docs.unity3d.com/ScriptReference/AndroidSdkVersions.html)
+          androidTargetSdkVersion: AndroidApiLevel36
+          androidSymbolType: public
+
+      - name: After build timestamp
+        if: ${{ always() }}
+        run: |
+          date -u
+          df -h
+          free -h || true
+
+      - name: Print build outcome
+        if: ${{ always() }}
+        run: |
+          echo "build outcome: ${{ steps.build.outcome }}"
+          echo "build conclusion: ${{ steps.build.conclusion }}"
+
+      - name: 📝 Publish build artifact
+        id: publish_build_artifact
+        if: steps.build.outcome != 'skipped'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Build-Android-${{ matrix.exportMode }}
+          path: build
+          retention-days: 7
+
+      - name: 📈 Upload AAB to Sentry for Size Tracking
+        if: steps.build.outcome == 'success' && matrix.exportMode == 'aab'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+          AAB_FILE=$(find build -name "*.aab" | head -n 1)
+          if [ -n "$AAB_FILE" ]; then
+            echo "Found AAB: $AAB_FILE"
+            sentry-cli build upload "$AAB_FILE" \
+              --org "$SENTRY_ORG" \
+              --project "$SENTRY_PROJECT" \
+              --build-configuration Release
+          else
+            echo "AAB file not found!"
+            exit 1
+          fi
+
+      - name: Disk space check
+        if: always()
+        run: df -h
+
+      - name: Post android build info
+        if: always()
+        run: |
+          echo "##### Android Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- Project Version (buildVersion): \`${{ steps.build.outputs.buildVersion }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Android Version Code: \`${{ steps.build.outputs.androidVersionCode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Step Exit Code: \`${{ steps.build.outputs.engineExitCode }}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Library folder
+        if: always()
+        run: |
+          check_folder() {
+            local folder=$1
+            local fail=$2
+            echo ""; echo "---"
+            if [ -d "$folder" ]; then
+              echo "📁 $folder($(readlink -f "$folder")) (Size: $(du -sh "$folder" | cut -f1)):"
+              ls -alF --group-directories-first "$folder"
+            else
+              echo "❌ 📁 No $folder"
+              if [ "$fail" == "true" ]; then
+                exit 1
+              fi
+            fi
+            echo "---"; echo ""
+          }
+          check_folder "./Library/"
+
+      - name: Save Library cache to R2
+        id: save_library_cache
+        if: steps.build.outcome == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          CACHE_KEY: Library-Android-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset', 'ProjectSettings/ProjectVersion.txt') }}
+        run: |
+          echo "Saving cache: $CACHE_KEY"
+          if [ -d "Library" ]; then
+            tar -I 'zstd -9' -cf Library.tar.zst Library
+            aws s3 cp Library.tar.zst "s3://$R2_BUCKET/$CACHE_KEY" --endpoint-url $R2_ENDPOINT --quiet
+            echo "Cache saved successfully."
+          else
+            echo "Library folder not found, skipping cache save."
+          fi
+
+      - name: Check root folder
+        if: always()
+        run: |
+          check_folder() {
+            local folder=$1
+            local fail=$2
+            echo ""; echo "---"
+            if [ -d "$folder" ]; then
+              echo "📁 $folder($(readlink -f "$folder")) (Size: $(du -sh "$folder" | cut -f1)):"
+              ls -alF --group-directories-first "$folder"
+            else
+              echo "❌ 📁 No $folder"
+              if [ "$fail" == "true" ]; then
+                exit 1
+              fi
+            fi
+            echo "---"; echo ""
+          }
+          check_folder "./"
+          check_folder "../"
+
+  buildWindows:
+    needs: [check_secrets]
+    #needs: [test, check_secrets]
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_buildWindows_job && inputs.run_build_jobs)
+    name: 🦺 Build for ${{ matrix.targetPlatform }}
+    timeout-minutes: 150
+    runs-on: windows-2025 #windows-2019
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          #- StandaloneWindows
+          - StandaloneWindows64
+          #- WSAPlayer
+    steps:
+      - name: 🧾 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: 🧾 Cache restore
+        uses: actions/cache@v6.1.0
+        with:
+          path: Library
+          key: Library-${{ matrix.targetPlatform }}-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset', 'ProjectSettings/ProjectVersion.txt') }}
+          #restore-keys: |
+          #  Library-${{ matrix.targetPlatform }}-
+
+      - name: 🦺 Build ${{ matrix.targetPlatform }}
+        id: build
+        uses: game-ci/unity-builder@v5.0.0
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: ${{ matrix.targetPlatform }}
+
+      - name: 📝 Publish build artifact
+        id: publish_build_artifact
+        if: steps.build.outcome != 'skipped'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Build-${{ matrix.targetPlatform }}
+          path: build
+          retention-days: 7
+
+      - name: Check folders
+        if: always()
+        run: |
+          check_folder() {
+            local folder=$1
+            local fail=$2
+            echo ""; echo "---"
+            if [ -d "$folder" ]; then
+              echo "📁 $folder($(readlink -f "$folder")) (Size: $(du -sh "$folder" | cut -f1)):"
+              ls -alF --group-directories-first "$folder"
+            else
+              echo "❌ 📁 No $folder"
+              if [ "$fail" == "true" ]; then
+                exit 1
+              fi
+            fi
+            echo "---"; echo ""
+          }
+          check_folder "/usr/share/dotnet/"
+          check_folder "/usr/local/lib/android/"
+          check_folder "/opt/ghc/"

@@ -1,0 +1,58 @@
+name: Cleanup
+
+permissions:
+  actions: write # To remove artifacts and caches
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # At 02:00 UTC-3 # https://crontab.guru/#0_2_*_*_*
+  workflow_dispatch: # Allows manual launch from the Actions tab
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  cleanup:
+    name: Cleanup old artifacts and caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set thresholds
+        run: |
+          echo "THRESHOLD_1day_LIST=$(date -d '1 day ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+          echo "THRESHOLD_1day_DELETE=$(date -d '1 day ago' +%Y-%m-%dT%H:%M:%S%:z)" >> $GITHUB_ENV
+
+      - name: Process artifacts
+        run: |
+          # Get a list of artifacts older than 1 day
+          gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq \
+            ".artifacts[] | select(.created_at < \"$THRESHOLD_1day_LIST\") | {
+              branch: .workflow_run.head_branch,
+              created_at: .created_at,
+              expired: .expired,
+              expires_at: .expires_at,
+              id: .id,
+              name: .name,
+              size_kb: (.size_in_bytes / 1024 | floor),
+              workflow_run_id: .workflow_run.id
+            }" > artifacts.json
+
+          if [ -s artifacts.json ]; then
+            echo "##### Artifacts older than 1 day (created before $THRESHOLD_1day_LIST):" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            jq -s '.' artifacts.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            # Delete those that are older than 1 day
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "##### Deleting artifacts older than 1 day (created before $THRESHOLD_1day_DELETE):" >> $GITHUB_STEP_SUMMARY
+            jq -c "select(.created_at < \"$THRESHOLD_1day_DELETE\")" artifacts.json | while read -r item; do
+              id=$(echo "$item" | jq -r '.id')
+              echo "Deleting artifact ID: $id" >> $GITHUB_STEP_SUMMARY
+              gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/$id
+            done
+          else
+            echo "##### No artifacts older than 1 day found." >> $GITHUB_STEP_SUMMARY
+          fi

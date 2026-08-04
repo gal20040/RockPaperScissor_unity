@@ -1,0 +1,151 @@
+name: Test with GameCI
+
+permissions:
+  actions: write # To cancel runs (gh run cancel) and delete the cache
+  checks: write
+  contents: read # To read the code
+  pull-requests: read # To check for PR (gh pr list)
+
+concurrency: unity
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+on:
+  #schedule:
+  #  - cron: '0 0 * * *' # At 00:00 UTC-3 # https://crontab.guru/#0_0_*_*_*
+  workflow_dispatch: # Allows manual launch from the Actions tab
+
+jobs:
+  check_secrets:
+    name: 🔑🩺 Check GitHub Secrets
+    timeout-minutes: 3
+    if: |
+      !contains(fromJSON('["dependabot", "renovate"]'), github.actor) &&
+      !startsWith(github.event.pull_request.title, 'chore(deps') &&
+      !startsWith(github.event.pull_request.title, 'fix(deps')
+    runs-on: ubuntu-latest
+    # runs-on: self-hosted
+    steps:
+      - name: 🔑 Check Unity license
+        id: checklicense
+        env:
+          UNITY_SERIAL_PERSONAL: ${{ secrets.UNITY_SERIAL_PERSONAL }}
+          UNITY_EMAIL_PERSONAL: ${{ secrets.UNITY_EMAIL_PERSONAL }}
+          UNITY_PASSWORD_PERSONAL: ${{ secrets.UNITY_PASSWORD_PERSONAL }}
+        run: |
+          missing_secrets=""
+          [ -z "$UNITY_SERIAL_PERSONAL" ] && missing_secrets="$missing_secrets UNITY_SERIAL_PERSONAL"
+          [ -z "$UNITY_EMAIL_PERSONAL" ] && missing_secrets="$missing_secrets UNITY_EMAIL_PERSONAL"
+          [ -z "$UNITY_PASSWORD_PERSONAL" ] && missing_secrets="$missing_secrets UNITY_PASSWORD_PERSONAL"
+          if [ -z "$missing_secrets" ]; then
+            echo "✅ All required 'UNITY_' secrets are present"
+          else
+            echo "❌ Missing 'UNITY_' secrets:$missing_secrets"
+            exit 1
+          fi
+
+      - name: 🩺 Check 'ANDROID_' secrets
+        id: check_android_secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEYALIAS_PASS: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+        run: |
+          missing_secrets=""
+          [ -z "$ANDROID_KEYSTORE_BASE64" ] && missing_secrets="$missing_secrets ANDROID_KEYSTORE_BASE64"
+          [ -z "$ANDROID_KEYSTORE_PASS" ] && missing_secrets="$missing_secrets ANDROID_KEYSTORE_PASS"
+          [ -z "$ANDROID_KEYALIAS_PASS" ] && missing_secrets="$missing_secrets ANDROID_KEYALIAS_PASS"
+          if [ -z "$missing_secrets" ]; then
+            echo "✅ All required 'ANDROID_' secrets are present"
+          else
+            echo "❌ Missing 'ANDROID_' secrets:$missing_secrets"
+            exit 1
+          fi
+
+  tests:
+    name: Unit Tests
+    needs: [check_secrets]
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: write
+    timeout-minutes: 30
+    steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          large-packages: false
+
+      - name: Checkout Repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Restore cache from R2
+        id: restore_cache_r2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          cd ..
+          if aws s3 cp "s3://$R2_BUCKET/cache.zip" cache.zip --endpoint-url $R2_ENDPOINT --quiet; then
+            echo "Cache found, extracting..."
+            unzip -q cache.zip -d ./Card-Game-Simulator_new/ && rm cache.zip
+          else
+            echo "Cache not found. Nothing to download - stop the job."
+            exit 1
+          fi
+          rm -rf Card-Game-Simulator/
+          mv Card-Game-Simulator_new/ Card-Game-Simulator/
+          cd ./Card-Game-Simulator/
+
+      - name: Cache Library
+        uses: actions/cache@v6.1.0
+        with:
+          path: Library
+          key: Library-Android-tests-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json', 'ProjectSettings/ProjectSettings.asset', 'ProjectSettings/ProjectVersion.txt') }}
+
+      - name: Before tests timestamp
+        if: ${{ always() }}
+        run: |
+          date -u
+          df -h
+          free -h || true
+
+      - name: Run EditMode Tests
+        uses: game-ci/unity-test-runner@v4.3.1
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL_PERSONAL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD_PERSONAL }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL_PERSONAL }}
+        with:
+          testMode: editmode
+
+      - name: Between tests timestamp
+        if: ${{ always() }}
+        run: |
+          date -u
+          df -h
+          free -h || true
+
+      - name: Run PlayMode Tests
+        uses: game-ci/unity-test-runner@v4.3.1
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL_PERSONAL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD_PERSONAL }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL_PERSONAL }}
+        with:
+          testMode: playmode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: After tests timestamp
+        if: ${{ always() }}
+        run: |
+          date -u
+          df -h
+          free -h || true

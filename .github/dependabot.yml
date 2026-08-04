@@ -1,0 +1,64 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+# перезапустить и посмотреть ошибки:
+# https://github.com/gal20040/2048/network/updates
+
+# запуски:
+# https://github.com/gal20040/2048/actions/workflows/dependabot/dependabot-updates
+
+version: 2
+updates:
+  # 1. JS/TS (npm)
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'daily' # Как часто проверять: 'daily', 'weekly' или 'monthly'
+      #day: 'monday'
+    # Каждое обновление будет в отдельном PR (группировка удалена)
+    open-pull-requests-limit: 20
+    labels:
+      - 'dependencies'
+      - 'npm/js/ts'
+
+  # 2. Android / Gradle
+  - package-ecosystem: 'gradle'
+    directory: '/android'
+    schedule:
+      interval: 'daily'
+    open-pull-requests-limit: 20
+    labels:
+      - 'dependencies'
+      - 'android'
+
+  # 3. GitHub Actions
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    open-pull-requests-limit: 20
+    labels:
+      - 'dependencies'
+      - 'ci/cd'
+
+  # 4. Docker (devcontainer)
+  - package-ecosystem: 'docker'
+    directory: '/.devcontainer'
+    schedule:
+      interval: 'daily'
+    open-pull-requests-limit: 20
+    labels:
+      - 'dependencies'
+      - 'docker'
+
+  # 5. .NET / NuGet
+  - package-ecosystem: 'nuget'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    open-pull-requests-limit: 20
+    labels:
+      - 'dependencies'
+      - 'dotnet/nuget'
