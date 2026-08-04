@@ -12,6 +12,9 @@ TS_src/
 
 cache.zip
 
+Assets/MobileDependencyResolver/
+Assets/MobileDependencyResolver.meta
+
 android-secure-storage-plugin/.kotlin/sessions/
 
 # Stryker.NET

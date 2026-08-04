@@ -1,10 +1,8 @@
-
-
 using System;
 
 public sealed class MonoPInvokeCallbackAttribute : Attribute
 {
-	public MonoPInvokeCallbackAttribute(Type type)
-	{
-	}
+    public MonoPInvokeCallbackAttribute(Type type)
+    {
+    }
 }

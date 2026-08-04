@@ -1,33 +1,27 @@
-
-
 namespace admob
 {
-	public class AdSize
-	{
-		private int width;
+    public class AdSize
+    {
+        public static readonly AdSize Banner = new(320, 50);
 
-		private int height;
+        public static readonly AdSize MediumRectangle = new(300, 250);
 
-		public static readonly AdSize Banner = new AdSize(320, 50);
+        public static readonly AdSize IABBanner = new(468, 60);
 
-		public static readonly AdSize MediumRectangle = new AdSize(300, 250);
+        public static readonly AdSize Leaderboard = new(728, 90);
 
-		public static readonly AdSize IABBanner = new AdSize(468, 60);
+        public static readonly AdSize WideSkyscraper = new(120, 600);
 
-		public static readonly AdSize Leaderboard = new AdSize(728, 90);
+        public static readonly AdSize SmartBanner = new(-1, -2);
 
-		public static readonly AdSize WideSkyscraper = new AdSize(120, 600);
+        public int Width { get; }
 
-		public static readonly AdSize SmartBanner = new AdSize(-1, -2);
+        public int Height { get; }
 
-		public int Width => width;
-
-		public int Height => height;
-
-		public AdSize(int width, int height)
-		{
-			this.width = width;
-			this.height = height;
-		}
-	}
+        public AdSize(int width, int height)
+        {
+            Width = width;
+            Height = height;
+        }
+    }
 }
