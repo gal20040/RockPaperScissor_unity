@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class Fader : MonoBehaviour
 {
@@ -18,11 +19,12 @@ public class Fader : MonoBehaviour
 
     private void Update()
     {
-        if (UnityEngine.Input.GetKeyUp(KeyCode.F))
+        if (Keyboard.current.fKey.wasReleasedThisFrame)
         {
             _ = StartCoroutine(fade());
         }
-        if (UnityEngine.Input.GetKeyUp(KeyCode.G))
+
+        if (Keyboard.current.gKey.wasReleasedThisFrame)
         {
             _ = StartCoroutine(fadeToBlack());
         }

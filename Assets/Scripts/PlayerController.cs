@@ -113,7 +113,7 @@ public class PlayerController : MonoBehaviour
             hand.GetComponent<Renderer>().material.mainTexture = handTextures[_index];
             _ = StartCoroutine(goToPosition(startingPosition, targetPosition, moveSpeed));
             yield return _waitForSeconds0_75;
-            StartCoroutine(GC.GetComponent<GameController>().checkResult(_index, AIController.cpuHandIndex));
+            _ = StartCoroutine(GC.GetComponent<GameController>().checkResult(_index, AIController.cpuHandIndex));
         }
     }
 

@@ -1,5 +1,5 @@
-
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 public class PauseManager : MonoBehaviour
@@ -34,7 +34,7 @@ public class PauseManager : MonoBehaviour
     private void Update()
     {
         touchManager();
-        if (UnityEngine.Input.GetKeyDown(KeyCode.P) || UnityEngine.Input.GetKeyUp(KeyCode.Escape))
+        if (Keyboard.current.pKey.wasPressedThisFrame || Keyboard.current.escapeKey.wasReleasedThisFrame)
         {
             switch (currentPage)
             {
@@ -49,7 +49,7 @@ public class PauseManager : MonoBehaviour
                     break;
             }
         }
-        if (UnityEngine.Input.GetKeyDown(KeyCode.R))
+        if (Keyboard.current.rKey.wasPressedThisFrame)
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
@@ -61,27 +61,21 @@ public class PauseManager : MonoBehaviour
         {
             return;
         }
+
         var ray = Camera.main.ScreenPointToRay(UnityEngine.Input.mousePosition);
         if (!Physics.Raycast(ray, out var hitInfo))
         {
             return;
         }
+
         var name = hitInfo.transform.gameObject.name;
         if (name == null)
         {
             return;
         }
-        if (!(name == "BtnPause"))
+
+        if (name == "BtnPause")
         {
-            if (!(name == "BtnResume"))
-            {
-                if (name == "BtnRestart")
-                {
-                    UnPauseGame();
-                    SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-                }
-                return;
-            }
             playSfx(tapSfx);
             switch (currentPage)
             {
@@ -98,18 +92,29 @@ public class PauseManager : MonoBehaviour
         }
         else
         {
-            playSfx(tapSfx);
-            switch (currentPage)
+            if (name == "BtnResume")
             {
-                case Page.PLAY:
-                    PauseGame();
-                    break;
-                case Page.PAUSE:
+                playSfx(tapSfx);
+                switch (currentPage)
+                {
+                    case Page.PLAY:
+                        PauseGame();
+                        break;
+                    case Page.PAUSE:
+                        UnPauseGame();
+                        break;
+                    default:
+                        currentPage = Page.PLAY;
+                        break;
+                }
+            }
+            else
+            {
+                if (name == "BtnRestart")
+                {
                     UnPauseGame();
-                    break;
-                default:
-                    currentPage = Page.PLAY;
-                    break;
+                    SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+                }
             }
         }
     }

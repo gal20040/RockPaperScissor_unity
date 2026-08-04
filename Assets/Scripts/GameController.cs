@@ -132,11 +132,11 @@ public class GameController : MonoBehaviour
             return;
         }
 
-        if (Physics.Raycast(ray, out RaycastHit hitInfo))
+        if (Physics.Raycast(ray, out var hitInfo))
         {
             if (hitInfo.transform.gameObject.name == "StartButton")
             {
-                StartCoroutine(OnStartButtonPressed(hitInfo.transform.gameObject));
+                _ = StartCoroutine(OnStartButtonPressed(hitInfo.transform.gameObject));
             }
         }
     }
@@ -158,7 +158,7 @@ public class GameController : MonoBehaviour
 
     private IEnumerator AnimateScaleDown(GameObject obj)
     {
-        Vector3 startScale = obj.transform.localScale;
+        var startScale = obj.transform.localScale;
         float t = 0f;
         while (t < 1f)
         {
@@ -221,7 +221,7 @@ public class GameController : MonoBehaviour
         Vector3 spawnPos = new Vector3(0f, 1f, -1f);
         if (statusText != null)
         {
-            GameObject statusObj = Instantiate(statusText, spawnPos, Quaternion.identity);
+            var statusObj = Instantiate(statusText, spawnPos, Quaternion.identity);
             var statusController = statusObj.GetComponent<StatusTextController>();
             if (statusController != null)
             {
