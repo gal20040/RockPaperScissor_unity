@@ -378,7 +378,7 @@ jobs:
       - name: 🦺 Build Android ${{ matrix.exportMode }}
         timeout-minutes: 90
         id: buildStep
-        uses: game-ci/unity-builder@v5.0.0
+        uses: game-ci/unity-builder@v5.0.1
         env:
           USYM_UPLOAD_AUTH_TOKEN: ${{ secrets.USYM_UPLOAD_AUTH_TOKEN }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL_PERSONAL }}
