@@ -199,7 +199,7 @@ jobs:
 
       - name: Free Disk Space
         timeout-minutes: 6
-        uses: jlumbroso/free-disk-space@v1.3.1
+        uses: jlumbroso/free-disk-space@v1.3.2
         if: github.event_name == 'workflow_dispatch' && !inputs.restore_cache_from_R2 && inputs.free_disk_space
         with:
           tool-cache: true
