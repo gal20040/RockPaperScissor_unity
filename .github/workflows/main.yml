@@ -270,7 +270,7 @@ jobs:
 
       - name: 📝 Publish build artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: r2files
           path: r2
@@ -424,7 +424,7 @@ jobs:
       - name: 📝 Publish test artifact
         id: publish_test_artifact
         if: steps.testRunner.outcome != 'skipped'
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: Test results (all modes)
           path: ${{ steps.testRunner.outputs.artifactsPath }}
@@ -628,7 +628,7 @@ jobs:
       - name: 📝 Publish build artifact
         id: publish_build_artifact
         if: steps.build.outcome != 'skipped'
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: Build-Android-${{ matrix.exportMode }}
           path: build
@@ -771,7 +771,7 @@ jobs:
       - name: 📝 Publish build artifact
         id: publish_build_artifact
         if: steps.build.outcome != 'skipped'
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: Build-${{ matrix.targetPlatform }}
           path: build
